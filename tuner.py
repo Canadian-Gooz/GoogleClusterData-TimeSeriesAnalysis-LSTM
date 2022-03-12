@@ -2,8 +2,7 @@ from pyexpat import model
 import keras_tuner as kt
 import tensorflow as tf
 from tensorflow import keras
-
-
+import tensorflow_addons as tfa
 
 class HpModel(kt.HyperModel):
     def __init__(self, model= None,loss = None, epochs =1):
@@ -33,6 +32,7 @@ class HpModel(kt.HyperModel):
         # The metric to track total loss.
         epoch_loss_val = keras.metrics.Mean()
         epoch_loss_train = keras.metrics.Mean()
+        metric = tfa.metrics.r_square.RSquare()
 
         # Function to run the train step.
         @tf.function
@@ -46,6 +46,7 @@ class HpModel(kt.HyperModel):
             gradients = tape.gradient(loss, model.trainable_variables)
             optimizer.apply_gradients(zip(gradients, model.trainable_variables))
             epoch_loss_train.update_state(loss)
+            metric.update_state(logits,labels)
 
         # Function to run the validation step.
         @tf.function
@@ -63,9 +64,8 @@ class HpModel(kt.HyperModel):
         best_epoch_loss = float("inf")
 
         # The custom training loop.
-        for epoch in range(self.epochs):
-            print(f"Epoch: {epoch}")
-
+        for epoch in range(self.epochs+1):
+            start = tf.timestamp()
             # Iterate the training data to run the training step.
             for data, labels in train_ds:
                 run_train_step(data, labels)
@@ -75,14 +75,19 @@ class HpModel(kt.HyperModel):
                 run_val_step(data, labels)
 
             # Calling the callbacks after epoch.
-            epoch_loss = float(epoch_loss_metric.result().numpy())
+            train_loss = float(epoch_loss_train.result().numpy())
+            val_loss = float(epoch_loss_val.result().numpy())
+            metric_r = float(metric.result().numpy())
+
             for callback in callbacks:
                 # The "my_metric" is the objective passed to the tuner.
-                callback.on_epoch_end(epoch, logs={"my_metric": epoch_loss})
+                callback.on_epoch_end(epoch, logs={"val_loss": val_loss})
             epoch_loss_val.reset_states()
             epoch_loss_train.reset_states()
-            print(f"Epoch loss: {epoch_loss}")
-            best_epoch_loss = min(best_epoch_loss, epoch_loss)
+            end = tf.timestamp()
+            if epoch % 20==0:
+                print(f"Epoch: {epoch} {round(end-start,3)} --- Training loss: {round(train_loss,5)} --- Validation loss: {round(val_loss,5)} --- R^2: {round(metric_r,2)}")
+            best_epoch_loss = min(best_epoch_loss, val_loss)
 
         # Return the evaluation metric value.
         return best_epoch_loss
