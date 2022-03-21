@@ -36,9 +36,9 @@ class HpModel(kt.HyperModel):
 
         # Function to run the train step.
         @tf.function
-        def run_train_step(images, labels):
+        def run_train_step(data, labels):
             with tf.GradientTape() as tape:
-                logits = model(images)
+                logits = model(data)
                 loss = loss_fn(labels, logits)
                 # Add any regularization losses.
                 if model.losses:
@@ -46,7 +46,8 @@ class HpModel(kt.HyperModel):
             gradients = tape.gradient(loss, model.trainable_variables)
             optimizer.apply_gradients(zip(gradients, model.trainable_variables))
             epoch_loss_train.update_state(loss)
-            metric.update_state(logits,labels)
+    
+            metric.update_state(tf.squeeze(logits),tf.squeeze(labels))
 
         # Function to run the validation step.
         @tf.function
@@ -78,15 +79,20 @@ class HpModel(kt.HyperModel):
             train_loss = float(epoch_loss_train.result().numpy())
             val_loss = float(epoch_loss_val.result().numpy())
             metric_r = float(metric.result().numpy())
-
+    
             for callback in callbacks:
                 # The "my_metric" is the objective passed to the tuner.
                 callback.on_epoch_end(epoch, logs={"val_loss": val_loss})
             epoch_loss_val.reset_states()
             epoch_loss_train.reset_states()
+            metric.reset_states()
             end = tf.timestamp()
+            time = float((end-start).numpy())
             if epoch % 20==0:
-                print(f"Epoch: {epoch} {round(end-start,3)} --- Training loss: {round(train_loss,5)} --- Validation loss: {round(val_loss,5)} --- R^2: {round(metric_r,2)}")
+                print(f"Epoch: {epoch} {round(time,3)} --- Training loss: {round(train_loss,5)} \
+                    --- Validation loss: {round(val_loss,5)} --- R^2: {round(metric_r,2)}")
+                         
+                        
             best_epoch_loss = min(best_epoch_loss, val_loss)
 
         # Return the evaluation metric value.
